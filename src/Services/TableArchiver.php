@@ -9,6 +9,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use RingleSoft\DbArchive\Jobs\ArchiveTableJob;
 use RingleSoft\DbArchive\Utility\Logger;
 use Throwable;
 
@@ -56,14 +57,14 @@ class TableArchiver
         $archiveConnection = DB::connection($this->archiveConnection);
         $sourceTableName = $this->table;
         $archiveTableName = $this->archiveTable;
-        $chunkSize = $this->settings->batchSize;
+        $batchSize = $this->settings->batchSize;
+        $jobSize = $this->settings->jobSize;
         $dateColumn = $this->settings->dateColumn;
         $conditions = $this->settings->conditions;
         $primaryId = $this->settings->primaryId ?? 'id';
 
         try {
-            DB::beginTransaction(); // Start a transaction to ensure atomicity
-            $sourceConnection->table($sourceTableName)
+            $query = $sourceConnection->table($sourceTableName)
                 ->where($dateColumn, '<', $this->cutoffDate)
                 ->when(count($conditions), function ($query) use ($conditions) {
                     foreach ($conditions as $key => $value) {
@@ -73,28 +74,45 @@ class TableArchiver
                             $query->where($key, $value);
                         }
                     }
-                })
-                ->orderBy($dateColumn)
-                ->chunkById($chunkSize, function ($sourceRecords) use ($sourceTableName, $archiveTableName, $archiveConnection, $sourceConnection, $primaryId) {
-                    $dataToArchive = [];
-                    $idsToDelete = [];
-
-                    foreach ($sourceRecords as $record) {
-                        $dataToArchive[] = (array)$record;
-                        $idsToDelete[] = $record->{$primaryId};
-                    }
-
-                    if (!empty($dataToArchive)) {
-                        $archiveConnection->table($archiveTableName)->insert($dataToArchive);
-                    }
-
-                    if (!empty($idsToDelete)) {
-                        $sourceConnection->table($sourceTableName)
-                            ->whereIn($primaryId, $idsToDelete)
-                            ->delete();
-                    }
                 });
-            DB::commit();
+            $archivableRecordsCount = $query->clone()->count();
+            $numBatches = ceil(min($jobSize, $archivableRecordsCount) / $batchSize);
+            for($i=0;$i<$numBatches;$i++) {
+                DB::beginTransaction(); // Start a transaction to ensure atomicity
+                $sourceRecords = $query->clone()
+                    ->orderBy($dateColumn)
+                    ->limit($batchSize)
+                    ->get();
+                $dataToArchive = [];
+                $idsToDelete = [];
+
+                foreach ($sourceRecords as $record) {
+                    $dataToArchive[] = (array)$record;
+                    $idsToDelete[] = $record->{$primaryId};
+                }
+
+                if (!empty($dataToArchive)) {
+                    $archiveConnection->table($archiveTableName)->insert($dataToArchive);
+                }
+
+                if (!empty($idsToDelete)) {
+                    $sourceConnection->table($sourceTableName)
+                        ->whereIn($primaryId, $idsToDelete)
+                        ->delete();
+                }
+
+                DB::commit();
+            }
+
+            Logger::info('Archived ' . $batchSize * $numBatches . ' records for table ' . $this->table);
+
+            //if we have reached the maximum number of records for a job, spawn another
+            if($archivableRecordsCount >= $batchSize * $numBatches) {
+                ArchiveTableJob::dispatch($this->table, $this->settings);
+            } else {
+                Logger::info('Finished archiving ' . $this->table);
+            }
+
             return true;
         } catch (QueryException $e) {
             DB::rollBack(); // Rollback the transaction in case of any error

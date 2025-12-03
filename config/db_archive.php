@@ -12,6 +12,7 @@ return [
     'settings' => [
         'table_prefix' => null,
         'batch_size' => 1000,
+        'job_size' => 100000,
         'archive_older_than_days' => 365,
         'date_column' => 'created_at',
         'conditions' => [],

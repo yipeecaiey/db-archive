@@ -7,6 +7,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Foundation\Bus\Dispatchable;
+use RingleSoft\DbArchive\Services\ArchiveSettings;
 use RingleSoft\DbArchive\Services\TableArchiver;
 
 class ArchiveTableJob implements ShouldQueue
@@ -15,9 +16,9 @@ class ArchiveTableJob implements ShouldQueue
 
 
     protected String $table;
-    protected array $settings;
+    protected array|ArchiveSettings $settings;
 
-    public function __construct( String $table, array $settings)
+    public function __construct( String $table, array|ArchiveSettings $settings)
     {
         $this->table = $table;
         $this->settings = $settings;

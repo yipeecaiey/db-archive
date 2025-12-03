@@ -22,7 +22,7 @@ class TableArchiver
     public ArchiveSettings $settings;
     public Carbon $cutoffDate;
 
-    public function __construct(string $table, ?array $settings = [])
+    public function __construct(string $table, array|ArchiveSettings|null $settings = [])
     {
         $this->withSettings($settings ?? []);
         $this->table = $table;
@@ -37,9 +37,9 @@ class TableArchiver
         return new self($table);
     }
 
-    public function withSettings(array $settings): self
+    public function withSettings(array|ArchiveSettings $settings): self
     {
-        $this->settings = ArchiveSettings::fromArray($settings);
+        $this->settings = ($settings instanceof ArchiveSettings) ? $settings : ArchiveSettings::fromArray($settings);
         return $this;
     }
 

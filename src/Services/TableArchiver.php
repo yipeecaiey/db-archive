@@ -52,7 +52,7 @@ class TableArchiver
     public function archive(): bool
     {
         $this->cutoffDate = Carbon::now()->subDays($this->settings->archiveOlderThanDays);
-        $this->log("Archiving table: " . $this->table);
+        Logger::debug("Archiving table: " . $this->table);
         $sourceConnection = DB::connection($this->activeConnection);
         $archiveConnection = DB::connection($this->archiveConnection);
         $sourceTableName = $this->table;

@@ -44,5 +44,6 @@ return [
     "queueing" => [
         "enable_queuing" => true,
         "enable_batching" => false,
+        "process_tables_async" => true,  //process the tables in the order of the tables array
     ],
 ];

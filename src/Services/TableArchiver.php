@@ -9,6 +9,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use RingleSoft\DbArchive\Facades\DbArchive;
 use RingleSoft\DbArchive\Jobs\ArchiveTableJob;
 use RingleSoft\DbArchive\Utility\Logger;
 use Throwable;
@@ -16,7 +17,6 @@ use Throwable;
 class TableArchiver
 {
     public string $table;
-
     public string $archiveTable;
     public ?string $activeConnection;
     public ?string $archiveConnection;
@@ -30,7 +30,6 @@ class TableArchiver
         $this->activeConnection = Config::get("database.default");
         $this->archiveConnection = Config::get('db_archive.connection');
         $this->archiveTable = $this->settings->tablePrefix ? ($this->settings->tablePrefix . '_' . $this->table) : $this->table;
-
     }
 
     public static function of(string $table): self
@@ -43,7 +42,6 @@ class TableArchiver
         $this->settings = ($settings instanceof ArchiveSettings) ? $settings : ArchiveSettings::fromArray($settings);
         return $this;
     }
-
 
     /**
      * @return bool
@@ -59,6 +57,7 @@ class TableArchiver
         $archiveTableName = $this->archiveTable;
         $batchSize = $this->settings->batchSize;
         $jobSize = $this->settings->jobSize;
+        $recordsProcessed = 0;
         $dateColumn = $this->settings->dateColumn;
         $conditions = $this->settings->conditions;
         $primaryId = $this->settings->primaryId ?? 'id';
@@ -77,7 +76,7 @@ class TableArchiver
                 });
             $archivableRecordsCount = $query->clone()->count();
             $numBatches = ceil(min($jobSize, $archivableRecordsCount) / $batchSize);
-            for($i=0;$i<$numBatches;$i++) {
+            for ($i = 0; $i < $numBatches; $i++) {
                 DB::beginTransaction(); // Start a transaction to ensure atomicity
                 $sourceRecords = $query->clone()
                     ->orderBy($dateColumn)
@@ -102,16 +101,28 @@ class TableArchiver
                 }
 
                 DB::commit();
+
+                $recordsProcessed += count($sourceRecords);
             }
 
-            Logger::info('Archived ' . $batchSize * $numBatches . ' records for table ' . $this->table);
+            Logger::info(sprintf('Archived %d of %d records for table %s',
+                $recordsProcessed,
+                $archivableRecordsCount,
+                $this->table
+            ));
 
-            //if we have reached the maximum number of records for a job, spawn another
-            if($archivableRecordsCount >= $batchSize * $numBatches) {
-                ArchiveTableJob::dispatch($this->table, $this->settings);
-            } else {
-                Logger::info('Finished archiving ' . $this->table);
+            //are there more records to process in this table?
+            if ($archivableRecordsCount > $recordsProcessed) {
+                if (Config::get('db_archive.queueing.enable_queuing')) {
+                    ArchiveTableJob::dispatch($this->table, $this->settings);
+                    return true;
+                } else {
+                    ArchiveTableJob::dispatchSync($this->table, $this->settings);
+                }
             }
+
+            //if we got here, all records have been archived
+            DbArchive::finishedArchivingTable($this->table, $this->settings);
 
             return true;
         } catch (QueryException $e) {
@@ -128,19 +139,4 @@ class TableArchiver
             return false; // Or throw exception
         }
     }
-
-    /**
-     * @param $data
-     * @param String|null $type
-     * @return void
-     */
-    private function log($data, ?string $type = "info"): void
-    {
-        if (Config::get('db_archive.enable_logging')) {
-            // TODO: modify the method
-            Log::debug($data);
-        }
-    }
-
 }
-

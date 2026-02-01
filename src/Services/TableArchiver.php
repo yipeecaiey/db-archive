@@ -95,6 +95,13 @@ class TableArchiver
                 }
 
                 if (!empty($idsToDelete)) {
+                    //dispatch model deleting events here
+                    if($event = $this->settings->dispatchModelDeletingEvent) {
+                        foreach($idsToDelete as $id) {
+                            $event::dispatch($id);
+                        }
+                    }
+                    //now delete the records
                     $sourceConnection->table($sourceTableName)
                         ->whereIn($primaryId, $idsToDelete)
                         ->delete();

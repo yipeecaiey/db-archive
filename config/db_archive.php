@@ -15,6 +15,7 @@ return [
         'job_size' => 100000,
         'archive_older_than_days' => 365,
         'date_column' => 'created_at',
+        'dispatch_model_deleting_event' => null,
         'conditions' => [],
         'primary_id' => 'id',
     ],
